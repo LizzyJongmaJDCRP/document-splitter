@@ -135,6 +135,8 @@ def split_image(path: Path):
     print(f"  {len(boxes)} documenten gevonden")
 
     stem = path.stem
+    if "-" in stem:
+        stem = stem.split("-", 1)[1]
     for idx, (x, y, w, h) in enumerate(boxes, start=1):
         crop = img[y:y + h, x:x + w]
         out = OUTPUT_DIR / f"{stem}_doc{idx:02d}.jpg"
