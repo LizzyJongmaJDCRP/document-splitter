@@ -77,6 +77,14 @@
     color: var(--warn); font-size: 14px; padding: 12px; border: 1px dashed var(--warn);
     border-radius: 6px; background: #fdf6ef;
   }
+  #resplit {
+    padding: 5px 12px; font-size: 13px; border: 1px solid var(--accent);
+    background: #fff; color: var(--accent); border-radius: 6px; cursor: pointer;
+  }
+  #resplit:hover { background: #f3ece1; }
+  #resplit:disabled { opacity: .5; cursor: wait; }
+  .resplitnote { font-size: 13px; color: #6b6459; margin: 6px 0 0; }
+  .resplitnote.warn { color: var(--warn); }
   #lightbox {
     position: fixed; inset: 0; background: rgba(20,17,12,.92); display: none;
     align-items: center; justify-content: center; cursor: zoom-out; z-index: 10;
@@ -120,6 +128,14 @@ const dropzone = document.getElementById("dropzone");
 
 let scans = [];
 let activeScan = null;
+let serverMode = false;
+
+fetch("/api/ping").then(r => r.json()).then(j => {
+  serverMode = !!j.server;
+  if (serverMode) {
+    statusEl.textContent = statusEl.textContent + " Servermodus actief: her-splitsen mogelijk.";
+  }
+}).catch(() => {});
 
 pickBtn.addEventListener("click", () => folderInput.click());
 folderInput.addEventListener("change", () => buildModel(Array.from(folderInput.files)));
@@ -230,6 +246,13 @@ function renderViewer(s) {
     warn.textContent = "— geen uitsneden gevonden in separated/ voor deze scan";
     h2.appendChild(warn);
   }
+  if (serverMode) {
+    const btn = document.createElement("button");
+    btn.id = "resplit";
+    btn.textContent = "Splits opnieuw";
+    btn.addEventListener("click", () => resplit(s, btn));
+    h2.appendChild(btn);
+  }
   wrap.appendChild(h2);
 
   const row = document.createElement("div");
@@ -270,6 +293,63 @@ function renderViewer(s) {
   row.appendChild(docs);
   wrap.appendChild(row);
   viewerEl.appendChild(wrap);
+  wrap.docsRow = docs;
+}
+
+async function resplit(s, btn) {
+  btn.disabled = true;
+  btn.textContent = "Splitsen…";
+  try {
+    const buf = await s.file.arrayBuffer();
+    const resp = await fetch("/api/split", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-Filename": s.file.name,
+        "X-Expected": String(s.docs.length),
+      },
+      body: buf,
+    });
+    const j = await resp.json();
+    if (!resp.ok || j.error) {
+      alert("Her-splitsen mislukt: " + (j.error || resp.status));
+      return;
+    }
+    const view = viewerEl.querySelector(".scanview");
+    if (view && view.docsRow) {
+      if (j.crops.length > s.docs.length) {
+        view.docsRow.innerHTML = "";
+        j.crops.forEach(c => {
+        const cell = document.createElement("div");
+        cell.className = "doc";
+        const img = document.createElement("img");
+        img.src = c.dataUrl;
+        img.alt = c.name;
+        img.addEventListener("click", () => showLightbox(img.src));
+        const label = document.createElement("div");
+        label.className = "label";
+        label.textContent = c.name + " (nieuw)";
+        cell.append(img, label);
+        view.docsRow.appendChild(cell);
+      });
+        s.docs = j.crops.map(c => ({ name: c.name }));
+        renderList();
+        const items = Array.from(scanListEl.children);
+        const idx = scans.indexOf(s);
+        if (items[idx]) items[idx].classList.add("active");
+      } else {
+        const note = document.createElement("div");
+        note.className = "resplitnote warn";
+        note.textContent = j.note + " — geen verbetering ten opzichte van de bestaande uitsneden.";
+        view.docsRow.insertBefore(note, view.docsRow.firstChild);
+      }
+    }
+  } catch (e) {
+    alert("Her-splitsen mislukt: " + e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Splits opnieuw";
+  }
 }
 
 function showLightbox(src) {
