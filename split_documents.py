@@ -2,12 +2,6 @@ import cv2
 import numpy as np
 from pathlib import Path
 
-INPUT_DIR = Path("/mnt/vibefs/uploads/179acede-c472-4586-97e4-0d662dbaccca")
-OUTPUT_DIR = Path("/workspace/output")
-DEBUG_DIR = Path("/workspace/debug")
-OUTPUT_DIR.mkdir(exist_ok=True)
-DEBUG_DIR.mkdir(exist_ok=True)
-
 SCALE = 0.25
 MIN_BLOB_AREA_FRAC = 0.002
 MIN_PART_AREA_FRAC = 0.001
@@ -110,7 +104,7 @@ def find_document_boxes(mask):
     return boxes
 
 
-def split_image(path: Path):
+def split_image(path: Path, output_dir: Path, debug_dir: Path):
     img = cv2.imread(str(path))
     if img is None:
         print(f"  kon {path.name} niet lezen")
@@ -139,7 +133,7 @@ def split_image(path: Path):
         stem = stem.split("-", 1)[1]
     for idx, (x, y, w, h) in enumerate(boxes, start=1):
         crop = img[y:y + h, x:x + w]
-        out = OUTPUT_DIR / f"{stem}_doc{idx:02d}.jpg"
+        out = output_dir / f"{stem}_doc{idx:02d}.jpg"
         cv2.imwrite(str(out), crop, [cv2.IMWRITE_JPEG_QUALITY, 95])
         print(f"    {out.name}  ({w}x{h} @ {x},{y})")
 
@@ -149,10 +143,45 @@ def split_image(path: Path):
         cv2.rectangle(vis, (sx, sy), (sx + sw, sy + sh), (0, 0, 255), 3)
         cv2.putText(vis, str(idx), (sx + 8, sy + 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 1.4, (0, 0, 255), 3)
-    cv2.imwrite(str(DEBUG_DIR / f"{stem}_boxes.jpg"), vis,
+    cv2.imwrite(str(debug_dir / f"{stem}_boxes.jpg"), vis,
                 [cv2.IMWRITE_JPEG_QUALITY, 80])
 
 
-for f in sorted(INPUT_DIR.glob("*.jpg")):
-    print(f.name)
-    split_image(f)
+def ask_input_dir() -> Path:
+    while True:
+        antwoord = input("Map met te splitsen scans (input_dir): ").strip().strip('"').strip("'")
+        pad = Path(antwoord).expanduser()
+        if pad.is_dir():
+            return pad
+        print(f"  '{pad}' bestaat niet of is geen map, probeer opnieuw.")
+
+
+def ask_output_dir() -> Path:
+    while True:
+        antwoord = input("Map voor de uitsneden (output_dir): ").strip().strip('"').strip("'")
+        pad = Path(antwoord).expanduser()
+        try:
+            pad.mkdir(parents=True, exist_ok=True)
+            return pad
+        except OSError as e:
+            print(f"  '{pad}' kon niet worden aangemaakt ({e}), probeer opnieuw.")
+
+
+def main():
+    input_dir = ask_input_dir()
+    output_dir = ask_output_dir()
+    debug_dir = output_dir / "_debug"
+    debug_dir.mkdir(exist_ok=True)
+
+    scans = sorted(input_dir.glob("*.jpg"))
+    if not scans:
+        print(f"Geen .jpg-bestanden gevonden in {input_dir}")
+        return
+    for f in scans:
+        print(f.name)
+        split_image(f, output_dir, debug_dir)
+    print(f"\nKlaar. Uitsneden staan in {output_dir}")
+
+
+if __name__ == "__main__":
+    main()
