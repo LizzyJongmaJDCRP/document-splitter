@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Controle tool — document-splitter</title>
+<style>
+  :root {
+    --bg: #f4f2ee;
+    --panel: #ffffff;
+    --border: #d8d3c8;
+    --accent: #8a5a2b;
+    --warn: #b3591f;
+    --text: #2b2620;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--text); height: 100vh;
+    display: flex; flex-direction: column;
+  }
+  header {
+    padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header .status { font-size: 13px; color: #6b6459; }
+  #pick {
+    padding: 8px 14px; background: var(--accent); color: #fff; border: none;
+    border-radius: 6px; font-size: 14px; cursor: pointer;
+  }
+  #pick:hover { filter: brightness(1.08); }
+  main { flex: 1; display: flex; min-height: 0; }
+  #scanlist {
+    width: 300px; min-width: 220px; overflow-y: auto; border-right: 1px solid var(--border);
+    background: var(--panel); padding: 8px;
+  }
+  .scanitem {
+    padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    border: 1px solid transparent;
+  }
+  .scanitem:hover { background: #efe9df; }
+  .scanitem.active { background: #ece2d3; border-color: var(--border); font-weight: 600; }
+  .scanitem .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge {
+    font-size: 11px; border-radius: 10px; padding: 1px 8px; white-space: nowrap;
+    background: #e3ded4; color: #55503f;
+  }
+  .badge.warn { background: #f3ddc9; color: var(--warn); }
+  #viewer { flex: 1; overflow: auto; padding: 16px; }
+  .placeholder { color: #8a8375; font-size: 14px; padding: 40px; text-align: center; }
+  .scanview h2 {
+    font-size: 15px; margin: 0 0 10px; font-weight: 600; word-break: break-all;
+  }
+  .scanview h2 .warn { color: var(--warn); font-weight: 500; font-size: 13px; }
+  .row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .orig {
+    flex: 0 1 480px; max-width: 55%;
+  }
+  .orig img {
+    width: 100%; height: auto; border: 1px solid var(--border); border-radius: 4px;
+    background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.08); cursor: zoom-in;
+  }
+  .docs {
+    flex: 1 1 320px; display: flex; gap: 14px; overflow-x: auto;
+    padding: 4px; align-items: flex-start;
+  }
+  .doc { flex: 0 0 auto; text-align: center; }
+  .doc img {
+    height: 320px; width: auto; max-width: 46vw; border: 1px solid var(--border);
+    border-radius: 4px; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    cursor: zoom-in; display: block;
+  }
+  .doc .label { font-size: 12px; color: #6b6459; margin-top: 4px; }
+  .nosep {
+    color: var(--warn); font-size: 14px; padding: 12px; border: 1px dashed var(--warn);
+    border-radius: 6px; background: #fdf6ef;
+  }
+  #lightbox {
+    position: fixed; inset: 0; background: rgba(20,17,12,.92); display: none;
+    align-items: center; justify-content: center; cursor: zoom-out; z-index: 10;
+  }
+  #lightbox img { max-width: 96vw; max-height: 96vh; border-radius: 4px; }
+  #dropzone {
+    position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    background: rgba(138,90,43,.15); z-index: 20; pointer-events: none;
+  }
+  #dropzone div {
+    background: var(--panel); border: 2px dashed var(--accent); border-radius: 10px;
+    padding: 30px 50px; font-size: 16px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Controle tool</h1>
+  <button id="pick">Map kiezen…</button>
+  <input type="file" id="folderinput" webkitdirectory multiple hidden>
+  <span class="status" id="status">Kies de map met de originele scans en de submap <b>separated</b>.</span>
+</header>
+<main>
+  <nav id="scanlist"><div class="placeholder">Nog geen map gekozen.</div></nav>
+  <section id="viewer"><div class="placeholder">Kies links een scan om het origineel en de uitgesneden documenten te bekijken.</div></section>
+</main>
+<div id="lightbox"><img alt=""></div>
+<div id="dropzone"><div>Map hier loslaten</div></div>
+
+<script>
+"use strict";
+
+const folderInput = document.getElementById("folderinput");
+const pickBtn = document.getElementById("pick");
+const statusEl = document.getElementById("status");
+const scanListEl = document.getElementById("scanlist");
+const viewerEl = document.getElementById("viewer");
+const lightbox = document.getElementById("lightbox");
+const lightboxImg = lightbox.querySelector("img");
+const dropzone = document.getElementById("dropzone");
+
+let scans = [];
+let activeScan = null;
+
+pickBtn.addEventListener("click", () => folderInput.click());
+folderInput.addEventListener("change", () => buildModel(Array.from(folderInput.files)));
+
+["dragenter", "dragover"].forEach(ev =>
+  document.addEventListener(ev, e => { e.preventDefault(); dropzone.style.display = "flex"; }));
+["dragleave", "drop"].forEach(ev =>
+  document.addEventListener(ev, e => {
+    e.preventDefault();
+    if (ev === "drop" || e.relatedTarget === null) dropzone.style.display = "none";
+  }));
+document.addEventListener("drop", e => {
+  const items = Array.from(e.dataTransfer.files || []);
+  if (items.length) buildModel(items);
+});
+
+lightbox.addEventListener("click", () => { lightbox.style.display = "none"; });
+
+function isSepPath(p) { return /(^|\/)separated\//i.test(p); }
+function isDebugPath(p) { return /(^|\/)_debug\//i.test(p); }
+function isJpg(f) { return /\.(jpe?g|png|webp)$/i.test(f.name); }
+
+function docNr(name) {
+  const m = name.match(/_doc(\d+)\.[a-z0-9]+$/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function baseStem(stem) {
+  return stem.replace(/_doc\d+$/i, "");
+}
+
+function tailOf(stem) {
+  return stem.includes("-") ? stem.split("-").pop() : stem;
+}
+
+function buildModel(files) {
+  const images = files.filter(f => isJpg(f) && !isDebugPath(f.webkitRelativePath || f.name));
+  const originals = [];
+  const separated = [];
+
+  images.forEach(f => {
+    const rel = f.webkitRelativePath || f.name;
+    (isSepPath(rel) ? separated : originals).push(f);
+  });
+
+  const sepByBase = new Map();
+  separated.forEach(f => {
+    const stem = f.name.replace(/\.[a-z0-9]+$/i, "");
+    const base = baseStem(stem);
+    if (!sepByBase.has(base)) sepByBase.set(base, []);
+    sepByBase.get(base).push(f);
+  });
+
+  scans = originals.map(f => {
+    const stem = f.name.replace(/\.[a-z0-9]+$/i, "");
+    let docs = sepByBase.get(stem) || sepByBase.get(tailOf(stem)) || [];
+    docs = docs.slice().sort((a, b) => (docNr(a.name) ?? 0) - (docNr(b.name) ?? 0));
+    return { file: f, stem, docs };
+  }).sort((a, b) => a.file.name.localeCompare(b.file.name, undefined, { numeric: true }));
+
+  renderList();
+  statusEl.textContent = `${scans.length} scans gevonden, ` +
+    `${scans.reduce((n, s) => n + s.docs.length, 0)} uitsneden in separated/.`;
+  if (scans.length) selectScan(scans[0]);
+  else viewerEl.innerHTML = '<div class="placeholder">Geen scans gevonden in deze map.</div>';
+}
+
+function renderList() {
+  scanListEl.innerHTML = "";
+  scans.forEach(s => {
+    const div = document.createElement("div");
+    div.className = "scanitem";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = s.file.name;
+    name.title = s.file.webkitRelativePath || s.file.name;
+    const badge = document.createElement("span");
+    if (s.docs.length) {
+      badge.className = "badge";
+      badge.textContent = s.docs.length + " doc";
+    } else {
+      badge.className = "badge warn";
+      badge.textContent = "geen uitsneden";
+    }
+    div.append(name, badge);
+    div.addEventListener("click", () => selectScan(s));
+    scanListEl.appendChild(div);
+  });
+}
+
+function selectScan(s) {
+  activeScan = s;
+  Array.from(scanListEl.children).forEach((el, i) =>
+    el.classList.toggle("active", scans[i] === s));
+  renderViewer(s);
+}
+
+function renderViewer(s) {
+  viewerEl.innerHTML = "";
+  const wrap = document.createElement("div");
+  wrap.className = "scanview";
+
+  const h2 = document.createElement("h2");
+  h2.textContent = s.file.name + "  ";
+  if (!s.docs.length) {
+    const warn = document.createElement("span");
+    warn.className = "warn";
+    warn.textContent = "— geen uitsneden gevonden in separated/ voor deze scan";
+    h2.appendChild(warn);
+  }
+  wrap.appendChild(h2);
+
+  const row = document.createElement("div");
+  row.className = "row";
+
+  const orig = document.createElement("div");
+  orig.className = "orig";
+  const origImg = document.createElement("img");
+  origImg.src = URL.createObjectURL(s.file);
+  origImg.alt = s.file.name;
+  origImg.addEventListener("click", () => showLightbox(origImg.src));
+  orig.appendChild(origImg);
+  row.appendChild(orig);
+
+  const docs = document.createElement("div");
+  docs.className = "docs";
+  if (s.docs.length) {
+    s.docs.forEach(d => {
+      const cell = document.createElement("div");
+      cell.className = "doc";
+      const img = document.createElement("img");
+      img.src = URL.createObjectURL(d);
+      img.alt = d.name;
+      img.addEventListener("click", () => showLightbox(img.src));
+      const label = document.createElement("div");
+      label.className = "label";
+      label.textContent = d.name;
+      cell.append(img, label);
+      docs.appendChild(cell);
+    });
+  } else {
+    const note = document.createElement("div");
+    note.className = "nosep";
+    note.textContent = "Er zijn geen bestanden als \u201C" + s.stem +
+      "_doc01.jpg\u201D gevonden in de map separated/.";
+    docs.appendChild(note);
+  }
+  row.appendChild(docs);
+  wrap.appendChild(row);
+  viewerEl.appendChild(wrap);
+}
+
+function showLightbox(src) {
+  lightboxImg.src = src;
+  lightbox.style.display = "flex";
+}
+</script>
+</body>
+</html>

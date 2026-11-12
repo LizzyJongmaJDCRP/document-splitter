@@ -23,3 +23,16 @@ van de outputmap.
 5. De prefixcode vóór de eerste `-` in de bestandsnaam vervalt in de uitvoernamen.
 
 Uitsneden van de voorbeeldscans staan in `output/`.
+
+## Controle tool
+
+Open `controle_tool.html` in de browser (dubbelklikken is genoeg — er is geen
+server of installatie nodig). Kies de map met de originele scans; de submap
+`separated/` met de uitsneden wordt automatisch meegenomen.
+
+- Links staat de lijst met scans, met het aantal gevonden uitsneden (of een
+  waarschuwing als er geen zijn).
+- Rechts toont de gekozen scan: origineel links, de uitsneden uit `separated/`
+  in een rij ernaast, gesorteerd op docnummer.
+- Klik op een afbeelding voor een vergrote weergave.
+- De map `_debug/` wordt genegeerd.
